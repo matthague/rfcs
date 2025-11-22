@@ -79,6 +79,7 @@ This adds additional complexity to Cargo's HTTP configuration, and the potential
 `libcurl` has supported client certificates via `CURLOPT_SSLCERT` and `CURLOPT_SSLKEY` since version 7.1 (released August 2000), and there is a huge variety of software that uses mTLS.
 
 Other popular developer tools support mTLS:
+* [Git](https://git-scm.com/docs/git-config.html#_variables) (version control system)
 * [Python Poetry](https://python-poetry.org/docs/repositories/#custom-certificate-authority-and-mutual-tls-authentication) (packaging and dependency managment)
 * [Python uv](https://docs.astral.sh/uv/reference/environment/#ssl_client_cert) (package and project manager)
 
