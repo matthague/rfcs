@@ -1,94 +1,127 @@
 - Feature Name: `mtls-registry-authentication`
-- Start Date: 2025-11-18
+- Start Date: 2026-01-16
 - RFC PR: [rust-lang/rfcs#0000](https://github.com/rust-lang/rfcs/pull/0000)
 - Rust Issue: [rust-lang/rust#0000](https://github.com/rust-lang/rust/issues/0000)
 
 # Summary
 [summary]: #summary
 
-This is an RFC aimed at allowing Cargo to present client certificates when forming http connections and support mutual TLS authentication with registries.
+This is an RFC aimed at allowing Cargo to present client certificates when forming HTTP connections and support mutual TLS authentication with registries.
 
 # Motivation
 [motivation]: #motivation
 
 Some organizations require client identity verification when interacting with privately hosted services. This can be achieved a number of ways, but is commonly done with certificates in a process called "mutual TLS" (mTLS).
 
-Cargo does not currently support forwarding client certificate information when it configures it's `libcurl` http handle. This poses an issue for organizations that host private crate registries and perform client authentication via certificates, since there is no alternative way to forward these client provided certificates.
+Cargo does not currently support forwarding client certificate information when it configures its `libcurl` HTTP handle. This poses an issue for organizations that host private crate registries and perform client authentication via certificates, since there is no alternative way to forward these client provided certificates.
 
-Authentication at the TLS level is different from the token-based methods for [Registry Authenticaion](https://doc.rust-lang.org/cargo/reference/registry-authentication.html) exposed by the [Credential Provider Protocol](https://doc.rust-lang.org/cargo/reference/credential-provider-protocol.html) since it takes place before the connection to the registry is established. It is not currently possible to write a [credential plugin](https://doc.rust-lang.org/cargo/reference/registry-authentication.html#credential-plugins) that enables this type of authentication with a registry.
-
-For additional context, many private services are reverse-proxied by web servers like Nginx, Apache, HAproxy, etc... to provide additional authentication features like SSO, SCIM and LDAP in addition to client identity verification.
+Authentication at the TLS level is different from the token-based methods for [Registry Authentication](https://doc.rust-lang.org/cargo/reference/registry-authentication.html) exposed by the [Credential Provider Protocol](https://doc.rust-lang.org/cargo/reference/credential-provider-protocol.html) since it takes place before the connection to the registry is established. It is not currently possible to write a [credential plugin](https://doc.rust-lang.org/cargo/reference/registry-authentication.html#credential-plugins) that enables this type of authentication with a registry, but an extension to that protocol would make this possible.
 
 # Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
-Users will be able to provide their certificates and key files to Cargo via the [http] section of the $HOME/.cargo/config.toml. When http connections are made, these client certificates will be presented.
+Credential providers will be able to provide client certificates and private keys to Cargo via new request and response messages.
 
-```toml
-[http]
-client-ssl-cert = "/etc/ssl/client-cert.pem"
-client-ssl-key = "/etc/ssl/client-key.pem"
+Cargo will issue a tls-identity request when configuring an HTTP client for a registry, and this identity will be used for all subsequent connections to the same registry (within the current Cargo session).
+
+## TLS client identity request
+
+* Sent by: Cargo
+* Purpose: Get client certificates and private keys for HTTP communication
+
+```json
+{
+    // Protocol version
+    "v":2,
+    // Request kind: set TLS client identity
+    "kind":"tls-identity",
+    // Registry information (see https://doc.rust-lang.org/cargo/reference/credential-provider-protocol.html#registry-information)
+    "registry":{"index-url":"sparse+https://registry-url/index/"},
+    // Additional command-line args (optional)
+    "args":[]
+}
 ```
 
-Users that have passphrase protected key files can specify such, and will be prompted for a passphrase when their key is used.
+## TLS client identity response
 
-```toml
-[http]
-client-ssl-cert = "/etc/ssl/client-cert.pem"
-client-ssl-key = "/etc/ssl/client-key.pem"
-client-ssl-key-protected = true
+* Sent by: credential provider
+* Purpose: Set client certificates and private keys for HTTP communication
+
+```json
+{"Ok":{
+    // Response kind: this was a TLS client identity request
+    "kind":"tls-identity",
+    // Base64 byte buffer containing the binary content of your client certificate (empty if unset)
+    "cert_blob":"aGVsbG8...gd29ybGQ=",
+    // The format of your client certificate. With the current curl-based backend, supported formats are “PEM”, “DER”, and "P12" (empty for backend default)
+    "cert_type":"PEM",
+    // Base64 byte buffer containing the binary content of your private key (empty if unset)
+    "key_blob":"aGVsbG8...gd29ybGQ=",
+    // The format of your private key. With the current curl-based backend, supported formats are “PEM” and “DER” (empty for backend default)
+    "key_type":"PEM",
+}}
 ```
 
 # Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
 
-The currently used crate for `libcurl` exposes methods for setting these certificates, keys, and specifying key passwords, and can be used to set these configuration options when http handles are being configured. These methods are:
-* `curl::easy::Easy::ssl_cert`
-* `curl::easy::Easy::ssl_key`
-* `curl::easy::Easy::key_password`
+The currently used crate for `libcurl` exposes methods for setting these certificates and keys, and can be used to set these configuration options when HTTP handles are being configured. These methods are:
+* `curl::easy::Easy::ssl_cert_blob`
+* `curl::easy::Easy::ssl_key_blob`
+* `curl::easy::Easy::ssl_cert_type`
+* `curl::easy::Easy::ssl_key_type`
 
 These "easy" methods wrap well tested code in the curl source:
-* https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_KEYPASSWD.md
 * https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEY.md
 * https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEYTYPE.md
 * https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLCERT.md
 
-If the `client-ssl-key-protected` option is set, a key passphrase will be securely prompted from the user.
+# Security Considerations
+
+Cargo MUST treat all certificate and private key data returned by a credential provider as sensitive material.
+
+Cargo MUST NOT persist tls-identity response data to disk.
+
+All certificate and key material should be held in memory only for the lifetime required to configure the HTTP client.
+
+Cargo MUST NOT log, print, or otherwise expose the contents of these blobs, including in debug or trace output.
+
+Credential providers are responsible for securely sourcing and protecting private key material.
 
 # Drawbacks
 [drawbacks]: #drawbacks
 
-This adds additional complexity to Cargo's HTTP configuration, and the potential for credential mismangagment. Depending on the way that key passphrases are managed, this could have impacts on where in the code http handles are configured.
+This adds additional complexity to Cargo's HTTP configuration and could have impacts on where in the code HTTP handles are configured, and which handles are used for communication with different registries.
 
 # Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
-- These new options are placed in the `CargoHttpConfig`, since they most closely align with configuration options for http connections.
+## Allow custom credential plugins to handle certificates
 
-- In the examle I used the PEM key type since this is the default used by https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEYTYPE.md. Certificates in the DER format exist but are less common due to lack of OpenSSL support.
+- Credential management is hard, and Cargo does not need to be directly involved in managing these certificates.
 
-- https://github.com/rust-lang/cargo/issues/10641 first proposed this feature, but chose to specify the `client-ssl-key-password` as a plaintext password directly in the `config.toml`. This is similar to storing unencrypted credentials on disk, so was avoided in favor of a `client-ssl-key-protected` boolean with a runtime prompt.
+- There are near endlessly niche ways that a user may want to provide their client certificates, and this protocol extension will allow users to write custom plugins to handle their situation.
 
-- It's easy to prompt for the key passphrase when configuring the http handle, but if many handles need to be configured the user will have a bad experience repeatedly typing their password. Handles may need to be reused in this case, or the password could be prompted at an earlier stage and passed through to other parts of the code, but this has additional complexity/scope of modification downsides.
+- This RFC does not introduce new trust boundaries beyond those already present for credential providers, which are treated as fully trusted by the user.
 
-- The main impact of not supporting mTLS for registry authentication is that some organizations will be unable to host and use private crate registries.
+## Avoid backend lock-in
+
+- Today Cargo is using `libcurl` for its backend HTTP client. There might be a future where a `rustls` based backend would be preferred. Nearly all TLS libraries support client certificates in some form, and this protocol extension gives Cargo ability to convert from a binary blob to whatever format may be needed in the future.
 
 # Prior art
 [prior-art]: #prior-art
 
-`libcurl` has supported client certificates via `CURLOPT_SSLCERT` and `CURLOPT_SSLKEY` since version 7.1 (released August 2000), and there is a huge variety of software that uses mTLS.
+Mutual TLS authentication is widely supported across TLS libraries, developer tools, and artifact distribution systems.
 
-Other popular developer tools support mTLS:
-* [Python Poetry](https://python-poetry.org/docs/repositories/#custom-certificate-authority-and-mutual-tls-authentication) (packaging and dependency managment)
-* [Python uv](https://docs.astral.sh/uv/reference/environment/#ssl_client_cert) (package and project manager)
+libcurl has supported client certificates via CURLOPT_SSLCERT and CURLOPT_SSLKEY since version 7.1 (released August 2000), and these options are commonly used by applications that require authenticated HTTPS connections. Other widely used TLS implementations, including OpenSSL, BoringSSL, NSS, and rustls, also provide first-class support for configuring client certificates and private keys for TLS connections.
 
+Many developer tools and package managers support mutual TLS when interacting with private registries or artifact repositories. For example, Python package management tools such as Poetry and uv allow users to configure client certificates for authenticated registry access. Other ecosystems similarly support client certificate authentication, including pip, npm, Maven, and Gradle, where mutual TLS is commonly used in enterprise environments.
+
+Private artifact repository systems and registry infrastructure, such as JFrog Artifactory, Sonatype Nexus, GitHub Enterprise, and GitLab, frequently support or encourage mutual TLS as an authentication mechanism for internal services. These systems are often deployed in environments with existing public key infrastructure, where TLS-level client authentication integrates naturally with organizational security policies.
+
+Within Cargo itself, this RFC builds on existing design patterns established by the credential provider protocol. Cargo already delegates authentication concerns to external credential providers and avoids managing long-lived secrets directly. Extending this protocol to allow credential providers to supply TLS client identity material follows the same approach and enables mutual TLS support without introducing new secret management responsibilities into Cargo.
 
 # Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Should the client key passphrase simply be prompted during http handle configuration, or is there a better way to handle this credential?
-
-# Future possibilities
-[future-possibilities]: #future-possibilities
-
-`libcurl` supports "ENG" and "PROV" key types https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEYTYPE.md. These allow the caller to load private keys and certificate informationn from a hardware/software crypto engine or provider. It's possible that this feature could be expanded in the future to support these additional key types.
+This RFC is intentionally limited to providing client certificate and private key material to Cargo. It does not address configuring additional certificate authority (CA) roots, interacting with platform trust stores, or performing certificate signing request (CSR)–based authentication flows (which would be needed to support hardware security modules). Future extensions to the credential provider protocol might allow credential providers to supply additional trust anchors or to participate in dynamic certificate issuance mechanisms, but these design decisions would likely be influenced by particular TLS backend choices.
