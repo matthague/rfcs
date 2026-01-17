@@ -51,14 +51,10 @@ Cargo will issue a tls-identity request when configuring an HTTP client for a re
 {"Ok":{
     // Response kind: this was a TLS client identity request
     "kind":"tls-identity",
-    // Base64 byte buffer containing the binary content of your client certificate (empty if unset)
-    "cert_blob":"aGVsbG8...gd29ybGQ=",
-    // The format of your client certificate. With the current curl-based backend, supported formats are “PEM”, “DER”, and "P12" (empty for backend default)
-    "cert_type":"PEM",
-    // Base64 byte buffer containing the binary content of your private key (empty if unset)
-    "key_blob":"aGVsbG8...gd29ybGQ=",
-    // The format of your private key. With the current curl-based backend, supported formats are “PEM” and “DER” (empty for backend default)
-    "key_type":"PEM",
+    // Base64 encoded byte buffer containing the binary content of your client certificate in PEM format (empty if unset)
+    "certificate":"aGVsbG8...gd29ybGQ=",
+    // Base64 encoded byte buffer containing the binary content of your private key in PEM format (empty if unset)
+    "key":"aGVsbG8...gd29ybGQ=",
 }}
 ```
 
@@ -68,12 +64,9 @@ Cargo will issue a tls-identity request when configuring an HTTP client for a re
 The currently used crate for `libcurl` exposes methods for setting these certificates and keys, and can be used to set these configuration options when HTTP handles are being configured. These methods are:
 * `curl::easy::Easy::ssl_cert_blob`
 * `curl::easy::Easy::ssl_key_blob`
-* `curl::easy::Easy::ssl_cert_type`
-* `curl::easy::Easy::ssl_key_type`
 
 These "easy" methods wrap well tested code in the curl source:
 * https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEY.md
-* https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLKEYTYPE.md
 * https://github.com/curl/curl/blob/master/docs/libcurl/opts/CURLOPT_SSLCERT.md
 
 # Security Considerations
