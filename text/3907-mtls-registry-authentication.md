@@ -51,14 +51,10 @@ Cargo will issue a tls-identity request when configuring an HTTP client for a re
 {"Ok":{
     // Response kind: this was a TLS client identity request
     "kind":"tls-identity",
-    // Client certificate chain in PEM format (empty if unset)
-    "certificate":"-----BEGIN CERTIFICATE-----
-                   [Base64 encoded client certificate data]
-                   -----END CERTIFICATE-----",
-    // Private keys in PEM format (empty if unset)
-    "key":"-----BEGIN PRIVATE KEY-----
-           [Base64 encoded private key data]
-           -----END PRIVATE KEY-----"
+    // Client certificate chain in PEM format, with escaped newlines (empty if unset)
+    "certificate":"-----BEGIN CERTIFICATE-----\n[Base64 encoded client certificate data]\n-----END CERTIFICATE-----",
+    // Private keys in PEM format, with escaped newlines (empty if unset)
+    "key":"-----BEGIN PRIVATE KEY-----\n[Base64 encoded private key data]\n-----END PRIVATE KEY-----"
 }}
 ```
 
