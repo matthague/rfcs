@@ -22,7 +22,7 @@ Authentication at the TLS level is different from the token-based methods for [R
 
 Credential providers will be able to provide client certificates and private keys to Cargo via new request and response messages.
 
-Cargo will issue a tls-identity request when configuring an HTTP client for a registry, and this identity will be used for all subsequent connections to the same registry (within the current Cargo session).
+Cargo will issue a tls-identity request when configuring an HTTP client for a registry, and the returned identity will be used for subsequent communication to the same registry (within the current Cargo session).
 
 ## TLS client identity request
 
@@ -57,6 +57,16 @@ Cargo will issue a tls-identity request when configuring an HTTP client for a re
     "key":"-----BEGIN PRIVATE KEY-----\n[Base64 encoded private key data]\n-----END PRIVATE KEY-----"
 }}
 ```
+
+## Certificate and key formats
+
+The `certificate` and `key` fields are expected to correspond to the same TLS client identity. If a credential provider is unable to supply a usable client identity, it may return empty fields.
+
+The `certificate` field contains the client certificate chain in PEM format, with newlines escaped using `\n`. If multiple certificates are present, they are expected to be concatenated PEM blocks.
+
+The `key` field contains the private key corresponding to the client certificate, in PEM format, with newlines escaped using `\n`.
+
+Encrypted private keys are not supported. Credential providers are responsible for decrypting user-provided material before returning it to Cargo.
 
 # Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -99,7 +109,7 @@ This adds additional complexity to Cargo's HTTP configuration and could have imp
 
 ## Avoid backend lock-in
 
-- Today Cargo is using `libcurl` for its backend HTTP client. There might be a future where a `rustls` based backend would be preferred. Nearly all TLS libraries support client certificates in some form, and this protocol extension gives Cargo ability to convert from a binary blob to whatever format may be needed in the future.
+- Today Cargo is using `libcurl` for its backend HTTP client. There might be a future where a `rustls` based backend would be preferred. Nearly all TLS libraries support client certificates in some form, and this protocol extension gives Cargo ability to convert from the widely used PEM format to whatever may be needed in the future.
 
 # Prior art
 [prior-art]: #prior-art
